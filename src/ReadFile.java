@@ -67,7 +67,7 @@ public class ReadFile {
                 documentText = "";
             }
             if(textCheck){
-                documentText+=line;
+                documentText= documentText + " " +line;
             }
         }
     }

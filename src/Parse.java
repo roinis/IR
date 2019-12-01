@@ -2,68 +2,31 @@ import java.util.*;
 
 
 public class Parse {
-    private HashMap<String, Term> terms;
+    private HashMap<String, String> terms;
     private int currentWord;
-    private int currentDocument;
+    private String currentDocument;
     private Hashtable<String, String> months;
+    private String[] words;
+    HashSet<String> stopWords;
 
-
-    public Parse() {
+    public Parse(HashSet<String> stopWords) {
         terms = new HashMap<>();
         currentWord = 0;
         createMonthsHash();
+        this.stopWords = stopWords;
     }
 
-    private void addWordToHash(String termName,Document document){
-        if (!terms.containsKey(termName.toLowerCase())){
-            if(Character.isUpperCase(termName.charAt(0))){
-                Term newTerm = new Term(termName.toUpperCase());
-                newTerm.addDocument(document);
-                newTerm.incrementCounter();
-                terms.put(termName.toLowerCase(),newTerm);
-            }
-            else{
-                Term newTerm = new Term(termName);
-                newTerm.addDocument(document);
-                newTerm.incrementCounter();
-                terms.put(termName.toLowerCase(),newTerm);
-            }
-        }else{
-            Term tempoTerm = terms.remove(termName.toLowerCase());
-            if(Character.isLowerCase(tempoTerm.getTerm().charAt(0))){
-                tempoTerm.incrementCounter();
-                tempoTerm.addDocument(document);
-                terms.put(termName.toLowerCase(),tempoTerm);
-            }
-            else{
-                if(Character.isUpperCase(termName.charAt(0))){
-                    tempoTerm.addDocument(document);
-                    tempoTerm.incrementCounter();
-                    terms.put(termName.toLowerCase(),tempoTerm);
-                }
-                else{
-                    tempoTerm.setTerm(termName.toLowerCase());
-                    tempoTerm.incrementCounter();
-                    tempoTerm.addDocument(document);
-                    terms.put(termName.toLowerCase(),tempoTerm);
-                }
-            }
+    public HashMap<String,String> parse(HashMap<String,String> documentsToParse){
+        for (String s: documentsToParse.keySet()) {
+            currentDocument = s;
+            words = documentsToParse.get(s).split("\\s+");
+            mainParser();
         }
+        return terms;
     }
 
-    private void addNumericTermToHash(String termName, Document document) {
-        if (!terms.containsKey(termName)) {
-            Term newTerm = new Term(termName);
-            newTerm.addDocument(document);
-            newTerm.incrementCounter();
-            terms.put(termName, newTerm);
-        } else {
-            Term tempoTerm = terms.remove(termName);
-            tempoTerm.incrementCounter();
-            tempoTerm.addDocument(document);
-            terms.put(termName, tempoTerm);
-        }
-    }
+
+
 
     private void createMonthsHash() {
         months = new Hashtable<>();
@@ -81,81 +44,114 @@ public class Parse {
         months.put("december", "12");
     }
 
-    private String[] splitDocumentText(String text) {
-        String[] words = text.split(" ");
-        return words;
+
+    public void mainParser() {
+
+        while(currentWord<words.length){
+            if(generateNumber())
+                continue;
+            else if(generatePhrases())
+                continue;
+            else {
+                generateWord();
+            }
+        }
+
     }
 
-    public void mainParser(Document document) {
-        String[] words;
-        words = document.getDocText().split("\\s+");
+    private boolean generateWord(){
+        String word = words[currentWord].replaceAll("[([,.]#)]*","");
+        if(months.containsKey(words[currentWord].toLowerCase()) ){
+            if(words[currentWord+1].matches("\\d+"))
+                addDate(words[currentWord+1],words[currentWord].toLowerCase());
+                currentWord = currentWord+2;
+        }
+        else if(stopWords.contains(word.toLowerCase())){
+            currentWord++;
+            return false;
+        }else {
+            terms.put(word, currentDocument);
+            currentWord++;
+            return true;
+        }
+        return false;
     }
 
-    private boolean generateWord(String[] words, Document document){
+    private boolean generatePhrases(){
+        if(currentWord + 3 < words.length){
+            if(words[currentWord].toLowerCase().equals("between") &&
+                    words[currentWord + 1].matches("\\d+") &&
+                    words[currentWord + 2].toLowerCase().equals("and") &&
+                    words[currentWord + 3].matches("\\d+")){
+                terms.put(words[currentWord + 1] + "-" + words[currentWord + 3],currentDocument);
+                currentWord+=4;
+                return true;
+            }
+        }
+        return false;
 
-
-
-
-
-        return true;
     }
 
-    private boolean generateNumber(String[] words, Document document) {
+    private boolean generateNumber() {
         String firstWord = words[currentWord];
         String nextWord = "";
         String previousWord = "";
         if (currentWord > 0) {
             previousWord = words[currentWord - 1].toLowerCase();
         }
-        if (currentWord < words.length)
+        if (currentWord +1< words.length)
             nextWord = words[currentWord + 1].toLowerCase();
+
         if (firstWord.matches("\\d[\\d,.]*\\%")) {
-            addPercentNumber(words[currentWord], document);
+            addPercentNumber(words[currentWord]);
             currentWord++;
         } else if (firstWord.matches("\\d[\\d,.]*")) {
-            numberIsTypeOne(words, firstWord, nextWord, previousWord, document);
-        } else if (firstWord.matches("\\b\\$\\d[\\d,.]*")) {
-            addPriceWithDollarSign(firstWord,nextWord,document);
+            numberIsTypeOne(firstWord, nextWord, previousWord);
+        } else if (firstWord.matches("\\$\\d[\\d,.]*")) {
+            addPriceWithDollarSign(firstWord,nextWord);
         } else if (firstWord.matches("\\d[\\d,.]*bn")&& nextWord.toLowerCase().equals("dollars")) {
-            addPriceWithBnSuffix(words[currentWord].toLowerCase(),document);
+            addPriceWithBnSuffix(words[currentWord].toLowerCase());
         }
         else if(firstWord.matches("\\d[\\d,.]*m")&& nextWord.toLowerCase().equals("dollars"))
-            addPriceWithMSuffix(words[currentWord],document);
+            addPriceWithMSuffix(words[currentWord]);
         else{
             return false;
         }
         return true;
     }
 
-    private void addPriceWithMSuffix(String word,Document document){
+    private void addPriceWithMSuffix(String word){
         float floatNumber;
         int intNumber;
-        String priceTerm=word.replace("[,bn]*","");
+        String priceTerm=word.replaceAll("[,m]","");
         floatNumber = Float.parseFloat(priceTerm);
-        priceTerm = String.valueOf((int)(floatNumber*1000));
         priceTerm = priceTerm + " M Dollars";
+        terms.put(priceTerm,currentDocument);
         currentWord = currentWord+2;
     }
 
-    private void addPriceWithBnSuffix(String word,Document document){
+    private void addPriceWithBnSuffix(String word){
         float floatNumber;
-        int intNumber;
-        String priceTerm=word.replace("[,m]*","");
+        long intNumber;
+        String priceTerm=word.replaceAll("[,bn]*","");
         if(word.contains(".")){
             floatNumber = Float.parseFloat(priceTerm);
+            priceTerm = String.valueOf((float)(floatNumber*1000));
             priceTerm = String.valueOf(floatNumber);
         }else{
             intNumber = Integer.valueOf(priceTerm);
+            priceTerm = String.valueOf((long)(intNumber*1000));
             priceTerm = String.valueOf(intNumber);
         }
         priceTerm = priceTerm + " M Dollars";
+        terms.put(priceTerm,currentDocument);
         currentWord = currentWord+2;
     }
 
-    private void addPriceWithUSandDollar(String word,String nextWord,Document document){
+    private void addPriceWithUSandDollar(String word,String nextWord){
         float floatNumber;
         int intNumber;
-        String priceTerm=word.replace("[,]*","");
+        String priceTerm=word.replaceAll("[,]*","");
         if(word.contains(".")){
             floatNumber = Float.parseFloat(priceTerm);
             priceTerm = String.valueOf(floatNumber);
@@ -170,15 +166,15 @@ public class Parse {
         else{
             priceTerm = priceTerm+ "000 M Dollars";
         }
-        addNumericTermToHash(priceTerm,document);
+        terms.put(priceTerm,currentDocument);
     }
 
-    private void numberIsTypeOne(String[] words, String firstWord, String nextWord, String previousWord, Document document) {
-        if (words[currentWord + 1].toLowerCase().equals("percent") || words[currentWord + 1].toLowerCase().equals("percentage")) {
-            addPercentNumber(words[currentWord], document);
+    private void numberIsTypeOne(String firstWord, String nextWord, String previousWord) {
+        if (nextWord.toLowerCase().equals("percent") || nextWord.toLowerCase().equals("percentage")) {
+            addPercentNumber(words[currentWord]);
             currentWord = currentWord + 2;
         }
-        else if (words[currentWord + 1].toLowerCase().equals("thousand") || words[currentWord + 1].toLowerCase().equals("million") || words[currentWord + 1].toLowerCase().equals("billion")) {
+        else if (nextWord.toLowerCase().equals("thousand") || nextWord.toLowerCase().equals("million") || nextWord.toLowerCase().equals("billion")) {
             String checkIfDollar ="";
             String checkIfUs = "";
             if(currentWord+3<words.length){
@@ -186,67 +182,67 @@ public class Parse {
                 checkIfUs = words[currentWord+2].toLowerCase();
             }
             if(checkIfUs.equals("u.s.") && checkIfDollar.equals("dollars")){
-                addPriceWithUSandDollar(words[currentWord].toLowerCase(),words[currentWord+1].toLowerCase(),document);
+                addPriceWithUSandDollar(words[currentWord].toLowerCase(),words[currentWord+1].toLowerCase());
                 currentWord = currentWord+4;
             }
             else{
-                addLargeNumbers(words[currentWord], words[currentWord + 1], document);
+                addLargeNumbers(words[currentWord], words[currentWord + 1]);
                 currentWord = currentWord + 2;
             }
         } else if (nextWord.matches("\\d+/\\d")) {
             if (currentWord + 2 < words.length) {
                 if (words[currentWord + 2].toLowerCase().equals("dollars")) {
-                    addDollarWithFraction(words[currentWord], words[currentWord + 1], document);
+                    addDollarWithFraction(words[currentWord], words[currentWord + 1]);
                     currentWord = currentWord + 3;
                 } else {
                     String numberWithFraction = words[currentWord] + " " + nextWord;
-                    addNumericTermToHash(numberWithFraction, document);
+                    terms.put(numberWithFraction,currentDocument);
                 }
             }
         } else if (nextWord.toLowerCase().matches("dollars")) {
-            addPriceWithDollar(words[currentWord], document);
+            addPriceWithDollar(words[currentWord]);
             currentWord = currentWord + 2;
-        } else if (firstWord.matches("\\d+]")) {
-            if (months.contains(nextWord.toLowerCase()) || months.contains(previousWord.toLowerCase())) {
-                if (months.contains(nextWord.toLowerCase())) {
-                    addDate(firstWord, nextWord.toLowerCase(), document);
+        } else if (firstWord.matches("\\d+")) {
+            if (months.containsKey(nextWord.toLowerCase()) || months.containsKey(previousWord.toLowerCase())) {
+                if (months.containsKey(nextWord.toLowerCase())) {
+                    addDate(firstWord, nextWord.toLowerCase());
                     currentWord = currentWord + 2;
                 } else {
-                    addDate(firstWord, previousWord.toLowerCase(), document);
+                    addDate(firstWord, previousWord.toLowerCase());
                     currentWord++;
                 }
             } else {
-                addPlainNumber(words[currentWord], document);
+                addPlainNumber(words[currentWord]);
                 currentWord++;
             }
         } else {
-            addPlainNumber(words[currentWord], document);
+            addPlainNumber(words[currentWord]);
             currentWord++;
         }
     }
 
-    private void addPriceWithDollarSign(String word, String nextWord, Document document) {
+    private void addPriceWithDollarSign(String word, String nextWord) {
         String priceTerm = "";
         float floatNumber;
         int intNumber;
-        priceTerm = word.replace("\\$*", "");
+        priceTerm = word.replaceAll("\\$*", "");
         if (nextWord.toLowerCase().equals("million")) {
-            priceTerm = word.replace("\\,*", "");
+            priceTerm = priceTerm.replaceAll("\\,*", "");
             priceTerm = priceTerm + " M Dollars";
             currentWord = currentWord+2;
         } else if (nextWord.toLowerCase().equals("billion")) {
-            priceTerm = word.replace("\\,*", "");
+            priceTerm = priceTerm.replaceAll("\\,*", "");
             priceTerm = priceTerm + "000" + " M Dollars";
             currentWord = currentWord+2;
         } else {
             if (priceTerm.contains(".")) {
-                floatNumber = Float.parseFloat(priceTerm.replace("\\,*", ""));
+                floatNumber = Float.parseFloat(priceTerm.replaceAll("\\,*", ""));
                 if (floatNumber >= 1000000) {
                     priceTerm = String.valueOf(floatNumber / 1000000) + " M Dollars";
                 } else
                     priceTerm = priceTerm + " Dollars";
             } else {
-                intNumber = Integer.parseInt(priceTerm.replace("\\,*", ""));
+                intNumber = Integer.parseInt(priceTerm.replaceAll("\\,*", ""));
                 if (intNumber >= 1000000)
                     priceTerm = String.valueOf(intNumber / 1000000) + " M Dollars";
                 else
@@ -254,10 +250,11 @@ public class Parse {
             }
             currentWord++;
         }
-        addNumericTermToHash(priceTerm, document);
+        terms.put(priceTerm,currentDocument);
     }
 
-    private void addPriceWithDollar(String number, Document document) {
+    private void addPriceWithDollar(String number) {
+        number = number.replaceAll("[,]","");
         int price = Integer.parseInt(number);
         String priceWithDollar = "";
         if (price <1000000) {
@@ -265,25 +262,26 @@ public class Parse {
         } else {
             priceWithDollar = String.valueOf(price/1000000) + " M Dollars";
         }
-        addNumericTermToHash(priceWithDollar, document);
+        terms.put(priceWithDollar,currentDocument);
     }
 
 
-    private void addDollarWithFraction(String number, String fraction, Document document) {
+    private void addDollarWithFraction(String number, String fraction) {
         String fractionTerm = number + " " + fraction + " Dollars";
-        addNumericTermToHash(fractionTerm, document);
+        terms.put(fractionTerm,currentDocument);
     }
 
 
-    private void addPercentNumber(String word, Document document) {
+    private void addPercentNumber(String word) {
         if (word.contains("%"))
-            addNumericTermToHash(word, document);
+            terms.put(word,currentDocument);
         else
-            addNumericTermToHash(word + "%", document);
+            terms.put(word + "%", currentDocument);
     }
 
-    private void addLargeNumbers(String word, String nextWord, Document document) {
+    private void addLargeNumbers(String word, String nextWord) {
         String termName;
+        word = word.replaceAll(",","");
         if (word.contains(".")) {
             float tempoFloat = Float.parseFloat(word);
             termName = String.format("%.3f", tempoFloat);
@@ -292,42 +290,42 @@ public class Parse {
         }
         if (nextWord.toLowerCase().equals("thousand")) {
             termName = termName + "K";
-            addNumericTermToHash(termName, document);
+            terms.put(termName,currentDocument);
         } else if (nextWord.toLowerCase().equals("million")) {
             termName = termName + "M";
-            addNumericTermToHash(termName, document);
+            terms.put(termName,currentDocument);
         } else if (nextWord.toLowerCase().equals("billion")) {
             termName = termName + "B";
-            addNumericTermToHash(termName, document);
+            terms.put(termName,currentDocument);
         }
     }
 
-    private void addPlainNumber(String number, Document document) {
+    private void addPlainNumber(String number) {
         String formattedNumber = number.replaceAll(",*", "");
         String numberTerm = "";
-        int nativeNum;
+        long nativeNum;
         if (formattedNumber.contains(".")) {
             if (Float.parseFloat(formattedNumber) < 1000)
                 numberTerm = String.valueOf(Float.parseFloat(formattedNumber));
             else if (Float.parseFloat(formattedNumber) < 1000000)
                 numberTerm = String.valueOf(Float.parseFloat(formattedNumber) / 1000) + "K";
         } else {
-            nativeNum = Integer.parseInt(formattedNumber);
+            nativeNum = Long.parseLong(formattedNumber);
             if (nativeNum < 1000)
                 numberTerm = String.valueOf(nativeNum);
             else if (nativeNum < 1000000)
-                numberTerm = String.valueOf(nativeNum / 1000) + "K";
+                numberTerm = String.valueOf((float)nativeNum / 1000) + "K";
             else if (nativeNum < 1000000000)
-                numberTerm = String.valueOf(nativeNum / 1000000) + "M";
+                numberTerm = String.valueOf((float)nativeNum / 1000000) + "M";
             else
-                numberTerm = String.valueOf(nativeNum / 1000000000) + "B";
+                numberTerm = String.valueOf((float)nativeNum / 1000000000) + "B";
 
         }
-        addNumericTermToHash(numberTerm, document);
+        terms.put(numberTerm,currentDocument);
     }
 
 
-    private void addDate(String number, String month, Document document) {
+    private void addDate(String number, String month) {
         Term date;
         String dateText = "";
         if (number.matches("\\d{1}")) {
@@ -337,7 +335,7 @@ public class Parse {
         } else if (number.matches("\\d{4}")) {
             dateText = number + "-" + months.get(month);
         }
-        addNumericTermToHash(dateText, document);
+        terms.put(dateText,currentDocument);
     }
 
 
